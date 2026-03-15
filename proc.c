@@ -6,6 +6,7 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "uproc.h"
 
 struct {
   struct spinlock lock;
@@ -531,4 +532,22 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+int getprocinfo(int pid, struct uproc *up) {
+    struct proc *p;
+    acquire(&ptable.lock);
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+        if(p->pid == pid) {
+            safestrcpy(up->name, p->name, sizeof(p->name));
+            up->pid = p->pid;
+            up->ppid = p->parent->pid;
+            up->sz = p->sz;
+            up->killed = p->killed;
+            release(&ptable.lock);
+            return 0;
+        }
+    }
+    release(&ptable.lock);
+    return -1;
 }
