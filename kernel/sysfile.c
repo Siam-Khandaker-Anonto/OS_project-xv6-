@@ -185,6 +185,53 @@ isdirempty(struct inode *dp)
   return 1;
 }
 
+static int
+unlink_path(char *path)
+{
+  struct inode *ip, *dp;
+  struct dirent de;
+  char name[DIRSIZ];
+  uint off;
+
+  if((dp = nameiparent(path, name)) == 0)
+    return -1;
+
+  ilock(dp);
+
+  if(namecmp(name, ".") == 0 || namecmp(name, "..") == 0)
+    goto bad;
+
+  if((ip = dirlookup(dp, name, &off)) == 0)
+    goto bad;
+  ilock(ip);
+
+  if(ip->nlink < 1)
+    panic("unlink_path: nlink < 1");
+  if(ip->type == T_DIR && !isdirempty(ip)){
+    iunlockput(ip);
+    goto bad;
+  }
+
+  memset(&de, 0, sizeof(de));
+  if(writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
+    panic("unlink_path: writei");
+  if(ip->type == T_DIR){
+    dp->nlink--;
+    iupdate(dp);
+  }
+  iunlockput(dp);
+
+  ip->nlink--;
+  iupdate(ip);
+  iunlockput(ip);
+
+  return 0;
+
+bad:
+  iunlockput(dp);
+  return -1;
+}
+
 uint64
 sys_unlink(void)
 {
@@ -363,8 +410,10 @@ sys_open(void)
   if((omode & O_TRUNC) && ip->type == T_FILE){
     static int snap_counter;
     char snapname[MAXPATH];
+    char oldname[MAXPATH];
     char digits[16];
     int num = snap_counter++;
+    int snapnum = num;
     int i = 0, j = 0;
 
     while(path[j] && j < MAXPATH - 16){
@@ -382,6 +431,28 @@ sys_open(void)
     while(i > 0)
       snapname[j++] = digits[--i];
     snapname[j] = 0;
+
+    if(snapnum >= 3){
+      int oldnum = snapnum - 3;
+      i = 0;
+      j = 0;
+      while(path[j] && j < MAXPATH - 16){
+        oldname[j] = path[j];
+        j++;
+      }
+      memmove(oldname + j, ".snap", 5);
+      j += 5;
+      if(oldnum == 0)
+        oldname[j++] = '0';
+      while(oldnum > 0){
+        digits[i++] = '0' + oldnum % 10;
+        oldnum /= 10;
+      }
+      while(i > 0)
+        oldname[j++] = digits[--i];
+      oldname[j] = 0;
+      unlink_path(oldname);
+    }
 
     struct inode *snap = create(snapname, T_FILE, 0, 0);
     if(snap){
