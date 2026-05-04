@@ -361,7 +361,24 @@ sys_open(void)
   f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
 
   if((omode & O_TRUNC) && ip->type == T_FILE){
-    struct inode *snap = create("snap_test", T_FILE, 0, 0);
+    static int snap_counter;
+    char snapname[MAXPATH];
+    char digits[16];
+    int num = snap_counter++;
+    int i = 0, j = 5;
+
+    memmove(snapname, "snap_", 5);
+    if(num == 0)
+      snapname[j++] = '0';
+    while(num > 0){
+      digits[i++] = '0' + num % 10;
+      num /= 10;
+    }
+    while(i > 0)
+      snapname[j++] = digits[--i];
+    snapname[j] = 0;
+
+    struct inode *snap = create(snapname, T_FILE, 0, 0);
     if(snap){
       char buf[BSIZE];
       uint off = 0;
