@@ -480,6 +480,72 @@ sys_open(void)
 }
 
 uint64
+sys_restoreversion(void)
+{
+  char path[MAXPATH], snapname[MAXPATH], digits[16], buf[BSIZE];
+  struct inode *ip, *snap;
+  int version, i = 0, j = 0, nread, ret = 0;
+  uint off = 0;
+
+  if(argstr(0, path, MAXPATH) < 0)
+    return -1;
+  argint(1, &version);
+  if(version < 0)
+    return -1;
+
+  while(path[j] && j < MAXPATH - 16){
+    snapname[j] = path[j];
+    j++;
+  }
+  memmove(snapname + j, ".v", 2);
+  j += 2;
+  if(version == 0)
+    snapname[j++] = '0';
+  while(version > 0){
+    digits[i++] = '0' + version % 10;
+    version /= 10;
+  }
+  while(i > 0)
+    snapname[j++] = digits[--i];
+  snapname[j] = 0;
+
+  begin_op();
+  if((snap = namei(snapname)) == 0){
+    end_op();
+    return -1;
+  }
+  if((ip = namei(path)) == 0){
+    iput(snap);
+    end_op();
+    return -1;
+  }
+
+  ilock(snap);
+  ilock(ip);
+  if(snap->type != T_FILE || ip->type != T_FILE){
+    ret = -1;
+  } else {
+    itrunc(ip);
+    while(off < snap->size){
+      int ncopy = snap->size - off;
+      if(ncopy > BSIZE)
+        ncopy = BSIZE;
+      nread = readi(snap, 0, (uint64)buf, off, ncopy);
+      if(nread <= 0 || writei(ip, 0, (uint64)buf, off, nread) != nread){
+        ret = -1;
+        break;
+      }
+      off += nread;
+    }
+  }
+  iunlockput(ip);
+  iunlockput(snap);
+  end_op();
+
+  return ret;
+}
+
+uint64
 sys_mkdir(void)
 {
   char path[MAXPATH];
