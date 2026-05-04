@@ -362,8 +362,21 @@ sys_open(void)
 
   if((omode & O_TRUNC) && ip->type == T_FILE){
     struct inode *snap = create("snap_test", T_FILE, 0, 0);
-    if(snap)
+    if(snap){
+      char buf[BSIZE];
+      uint off = 0;
+      int nread;
+      while(off < ip->size){
+        int ncopy = ip->size - off;
+        if(ncopy > BSIZE)
+          ncopy = BSIZE;
+        nread = readi(ip, 0, (uint64)buf, off, ncopy);
+        if(nread <= 0 || writei(snap, 0, (uint64)buf, off, nread) != nread)
+          break;
+        off += nread;
+      }
       iunlockput(snap);
+    }
     itrunc(ip);
   }
 
