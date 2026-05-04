@@ -365,9 +365,14 @@ sys_open(void)
     char snapname[MAXPATH];
     char digits[16];
     int num = snap_counter++;
-    int i = 0, j = 5;
+    int i = 0, j = 0;
 
-    memmove(snapname, "snap_", 5);
+    while(path[j] && j < MAXPATH - 16){
+      snapname[j] = path[j];
+      j++;
+    }
+    memmove(snapname + j, ".snap", 5);
+    j += 5;
     if(num == 0)
       snapname[j++] = '0';
     while(num > 0){
