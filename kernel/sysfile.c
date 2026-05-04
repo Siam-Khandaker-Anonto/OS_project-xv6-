@@ -420,8 +420,8 @@ sys_open(void)
       snapname[j] = path[j];
       j++;
     }
-    memmove(snapname + j, ".snap", 5);
-    j += 5;
+    memmove(snapname + j, ".v", 2);
+    j += 2;
     if(num == 0)
       snapname[j++] = '0';
     while(num > 0){
@@ -440,8 +440,8 @@ sys_open(void)
         oldname[j] = path[j];
         j++;
       }
-      memmove(oldname + j, ".snap", 5);
-      j += 5;
+      memmove(oldname + j, ".v", 2);
+      j += 2;
       if(oldnum == 0)
         oldname[j++] = '0';
       while(oldnum > 0){
