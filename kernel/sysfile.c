@@ -361,6 +361,9 @@ sys_open(void)
   f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
 
   if((omode & O_TRUNC) && ip->type == T_FILE){
+    struct inode *snap = create("snap_test", T_FILE, 0, 0);
+    if(snap)
+      iunlockput(snap);
     itrunc(ip);
   }
 
