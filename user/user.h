@@ -25,6 +25,7 @@ char* sys_sbrk(int,int);
 int pause(int);
 int uptime(void);
 int restoreversion(const char*, int);
+int listversions(const char*);
 
 // ulib.c
 int stat(const char*, struct stat*);

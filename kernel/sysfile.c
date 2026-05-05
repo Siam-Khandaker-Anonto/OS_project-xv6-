@@ -678,3 +678,43 @@ sys_pipe(void)
   }
   return 0;
 }
+
+uint64
+sys_listversions(void)
+{
+  char path[MAXPATH];
+  char name[DIRSIZ];
+  struct inode *dp;
+  struct dirent de;
+  uint off;
+  int namelen;
+
+  if(argstr(0, path, MAXPATH) < 0)
+    return -1;
+
+  begin_op();
+  if((dp = nameiparent(path, name)) == 0){
+    end_op();
+    return -1;
+  }
+
+  namelen = strlen(name);
+
+  ilock(dp);
+  for(off = 0; off < dp->size; off += sizeof(de)){
+    if(readi(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
+      panic("listversions: readi");
+    if(de.inum == 0)
+      continue;
+    if(strncmp(de.name, name, namelen) == 0 &&
+       de.name[namelen] == '.' &&
+       de.name[namelen+1] == 'v' &&
+       de.name[namelen+2] >= '0' &&
+       de.name[namelen+2] <= '9') {
+      printf("%s\n", de.name);
+    }
+  }
+  iunlockput(dp);
+  end_op();
+  return 0;
+}

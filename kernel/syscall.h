@@ -21,3 +21,4 @@
 #define SYS_mkdir  20
 #define SYS_close  21
 #define SYS_restoreversion 22
+#define SYS_listversions 23
