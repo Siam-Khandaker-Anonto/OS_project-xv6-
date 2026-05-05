@@ -147,7 +147,7 @@ UPROGS=\
 	$U/_dorphan\
 	$U/_listversions\
 	$U/_restoreversion\
-
+	$U/_versiontest\
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
 
