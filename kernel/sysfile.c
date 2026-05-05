@@ -497,17 +497,19 @@ sys_restoreversion(void)
     snapname[j] = path[j];
     j++;
   }
-  memmove(snapname + j, ".v", 2);
-  j += 2;
-  if(version == 0)
+  snapname[j++] = '.';
+  snapname[j++] = 'v';
+  if(version == 0){
     snapname[j++] = '0';
-  while(version > 0){
-    digits[i++] = '0' + version % 10;
-    version /= 10;
+  } else {
+    while(version > 0){
+      digits[i++] = '0' + (version % 10);
+      version /= 10;
+    }
+    while(i > 0)
+      snapname[j++] = digits[--i];
   }
-  while(i > 0)
-    snapname[j++] = digits[--i];
-  snapname[j] = 0;
+  snapname[j] = '\0';
 
   begin_op();
   if((snap = namei(snapname)) == 0){
