@@ -408,32 +408,54 @@ sys_open(void)
   f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
 
   if((omode & O_TRUNC) && ip->type == T_FILE){
-    static int snap_counter;
     char snapname[MAXPATH];
     char oldname[MAXPATH];
     char digits[16];
-    int num = snap_counter++;
-    int snapnum = num;
-    int i = 0, j = 0;
+    char dname[DIRSIZ];
+    struct inode *ddp;
+    struct dirent de;
+    uint doff;
+    int namelen, snap_count, min_ver, max_ver, i, j;
 
-    while(path[j] && j < MAXPATH - 16){
-      snapname[j] = path[j];
-      j++;
-    }
-    memmove(snapname + j, ".v", 2);
-    j += 2;
-    if(num == 0)
-      snapname[j++] = '0';
-    while(num > 0){
-      digits[i++] = '0' + num % 10;
-      num /= 10;
-    }
-    while(i > 0)
-      snapname[j++] = digits[--i];
-    snapname[j] = 0;
+    // Get parent directory and base name of the file
+    if((ddp = nameiparent(path, dname)) == 0)
+      goto skipsnap;
 
-    if(snapnum >= 3){
-      int oldnum = snapnum - 3;
+    namelen = strlen(dname);
+
+    // Scan directory: count snapshots, find min and max version numbers
+    ilock(ddp);
+    snap_count = 0;
+    min_ver = 999999;
+    max_ver = -1;
+    for(doff = 0; doff < ddp->size; doff += sizeof(de)){
+      if(readi(ddp, 0, (uint64)&de, doff, sizeof(de)) != sizeof(de))
+        break;
+      if(de.inum == 0)
+        continue;
+      if(strncmp(de.name, dname, namelen) == 0 &&
+         de.name[namelen] == '.' &&
+         de.name[namelen+1] == 'v' &&
+         de.name[namelen+2] >= '0' &&
+         de.name[namelen+2] <= '9') {
+        // Parse version number
+        int ver = 0;
+        int k = namelen + 2;
+        while(de.name[k] >= '0' && de.name[k] <= '9'){
+          ver = ver * 10 + (de.name[k] - '0');
+          k++;
+        }
+        snap_count++;
+        if(ver < min_ver)
+          min_ver = ver;
+        if(ver > max_ver)
+          max_ver = ver;
+      }
+    }
+    iunlockput(ddp);
+
+    // If at capacity, delete the oldest snapshot (min version)
+    if(snap_count >= 3){
       i = 0;
       j = 0;
       while(path[j] && j < MAXPATH - 16){
@@ -442,16 +464,44 @@ sys_open(void)
       }
       memmove(oldname + j, ".v", 2);
       j += 2;
-      if(oldnum == 0)
+      if(min_ver == 0){
         oldname[j++] = '0';
-      while(oldnum > 0){
-        digits[i++] = '0' + oldnum % 10;
-        oldnum /= 10;
+      } else {
+        int tmp = min_ver;
+        while(tmp > 0){
+          digits[i++] = '0' + tmp % 10;
+          tmp /= 10;
+        }
+        while(i > 0)
+          oldname[j++] = digits[--i];
       }
-      while(i > 0)
-        oldname[j++] = digits[--i];
       oldname[j] = 0;
       unlink_path(oldname);
+    }
+
+    // New version = max + 1 (or 0 if no snapshots exist yet)
+    {
+      int newver = (max_ver >= 0) ? max_ver + 1 : 0;
+      i = 0;
+      j = 0;
+      while(path[j] && j < MAXPATH - 16){
+        snapname[j] = path[j];
+        j++;
+      }
+      memmove(snapname + j, ".v", 2);
+      j += 2;
+      if(newver == 0){
+        snapname[j++] = '0';
+      } else {
+        int tmp = newver;
+        while(tmp > 0){
+          digits[i++] = '0' + tmp % 10;
+          tmp /= 10;
+        }
+        while(i > 0)
+          snapname[j++] = digits[--i];
+      }
+      snapname[j] = 0;
     }
 
     struct inode *snap = create(snapname, T_FILE, 0, 0);
@@ -470,6 +520,7 @@ sys_open(void)
       }
       iunlockput(snap);
     }
+skipsnap:
     itrunc(ip);
   }
 
