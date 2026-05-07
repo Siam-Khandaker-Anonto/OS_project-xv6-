@@ -9,7 +9,6 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
-struct uproc;
 
 // bio.c
 void            binit(void);
@@ -109,7 +108,6 @@ int             cpuid(void);
 void            exit(void);
 int             fork(void);
 int             growproc(int);
-int             getprocinfo(int, struct uproc*);
 int             kill(int);
 struct cpu*     mycpu(void);
 struct proc*    myproc();

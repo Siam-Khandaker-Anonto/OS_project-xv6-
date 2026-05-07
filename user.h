@@ -1,6 +1,5 @@
 struct stat;
 struct rtcdate;
-struct uproc;
 
 // system calls
 int fork(void);
@@ -24,8 +23,8 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
-int getprocinfo(int, struct uproc*);
-int symlink(char*, char*);
+int restoreversion(const char*, int);
+int listversions(const char*);
 
 // ulib.c
 int stat(const char*, struct stat*);

@@ -54,7 +54,8 @@ void panic(char*);
 struct cmd *parsecmd(char*);
 
 // Execute cmd.  Never returns.
-__attribute__((noreturn))
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winfinite-recursion"
 void
 runcmd(struct cmd *cmd)
 {
@@ -130,6 +131,7 @@ runcmd(struct cmd *cmd)
   }
   exit();
 }
+#pragma GCC diagnostic pop
 
 int
 getcmd(char *buf, int nbuf)
@@ -387,7 +389,7 @@ parseredirs(struct cmd *cmd, char **ps, char *es)
       cmd = redircmd(cmd, q, eq, O_RDONLY, 0);
       break;
     case '>':
-      cmd = redircmd(cmd, q, eq, O_WRONLY|O_CREATE, 1);
+      cmd = redircmd(cmd, q, eq, O_WRONLY|O_CREATE|O_TRUNC, 1);
       break;
     case '+':  // >>
       cmd = redircmd(cmd, q, eq, O_WRONLY|O_CREATE, 1);

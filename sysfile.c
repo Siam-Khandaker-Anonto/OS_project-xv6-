@@ -180,6 +180,53 @@ isdirempty(struct inode *dp)
   return 1;
 }
 
+static int
+unlink_path(char *path)
+{
+  struct inode *ip, *dp;
+  struct dirent de;
+  char name[DIRSIZ];
+  uint off;
+
+  if((dp = nameiparent(path, name)) == 0)
+    return -1;
+
+  ilock(dp);
+
+  if(namecmp(name, ".") == 0 || namecmp(name, "..") == 0)
+    goto bad;
+
+  if((ip = dirlookup(dp, name, &off)) == 0)
+    goto bad;
+  ilock(ip);
+
+  if(ip->nlink < 1)
+    panic("unlink_path: nlink < 1");
+  if(ip->type == T_DIR && !isdirempty(ip)){
+    iunlockput(ip);
+    goto bad;
+  }
+
+  memset(&de, 0, sizeof(de));
+  if(writei(dp, (char*)&de, off, sizeof(de)) != sizeof(de))
+    panic("unlink_path: writei");
+  if(ip->type == T_DIR){
+    dp->nlink--;
+    iupdate(dp);
+  }
+  iunlockput(dp);
+
+  ip->nlink--;
+  iupdate(ip);
+  iunlockput(ip);
+
+  return 0;
+
+bad:
+  iunlockput(dp);
+  return -1;
+}
+
 //PAGEBREAK!
 int
 sys_unlink(void)
@@ -282,33 +329,6 @@ create(char *path, short type, short major, short minor)
   return ip;
 }
 
-int sys_symlink(void)
-{
-  char *target, *path;
-  struct inode *ip;
-
-  if(argstr(0, &target) < 0 || argstr(1, &path) < 0)
-    return -1;
-
-  begin_op();
-
-  ip = create(path, T_SYMLINK, 0, 0);
-  if(ip == 0){
-    end_op();
-    return -1;
-  }
-
-  if(writei(ip, target, 0, strlen(target)) < 0){
-    iunlockput(ip);
-    end_op();
-    return -1;
-  }
-
-  iunlockput(ip);
-  end_op();
-  return 0;
-}
-
 int
 sys_open(void)
 {
@@ -341,40 +361,6 @@ sys_open(void)
     }
   }
 
- 
-  if(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)){
-    int depth = 0;
-    int max_depth = 10;
-    char target[512];
-    int len;
-
-    while(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)){
-      if(depth >= max_depth){
-        iunlockput(ip);
-        end_op();
-        return -1;
-      }
-
-      len = readi(ip, target, 0, 511);
-      if(len <= 0){
-        iunlockput(ip);
-        end_op();
-        return -1;
-      }
-      target[len] = '\0';
-
-      iunlockput(ip);
-
-      if((ip = namei(target)) == 0){
-        end_op();
-        return -1;
-      }
-      ilock(ip);
-      depth++;
-    }
-  }
-
-
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
     if(f)
       fileclose(f);
@@ -383,19 +369,202 @@ sys_open(void)
     return -1;
   }
 
+  if((omode & O_TRUNC) && ip->type == T_FILE){
+    char snapname[MAXPATH];
+    char oldname[MAXPATH];
+    char digits[16];
+    char dname[DIRSIZ];
+    struct inode *ddp;
+    struct dirent de;
+    uint doff;
+    int namelen, snap_count, min_ver, max_ver, i, j;
+
+    // Get parent directory and base name of the file
+    if((ddp = nameiparent(path, dname)) == 0)
+      goto skipsnap;
+
+    namelen = strlen(dname);
+
+    // Scan directory: count snapshots, find min and max version numbers
+    ilock(ddp);
+    snap_count = 0;
+    min_ver = 999999;
+    max_ver = -1;
+    for(doff = 0; doff < ddp->size; doff += sizeof(de)){
+      if(readi(ddp, (char*)&de, doff, sizeof(de)) != sizeof(de))
+        break;
+      if(de.inum == 0)
+        continue;
+      if(strncmp(de.name, dname, namelen) == 0 &&
+         de.name[namelen] == '.' &&
+         de.name[namelen+1] == 'v' &&
+         de.name[namelen+2] >= '0' &&
+         de.name[namelen+2] <= '9') {
+        // Parse version number
+        int ver = 0;
+        int k = namelen + 2;
+        while(de.name[k] >= '0' && de.name[k] <= '9'){
+          ver = ver * 10 + (de.name[k] - '0');
+          k++;
+        }
+        snap_count++;
+        if(ver < min_ver)
+          min_ver = ver;
+        if(ver > max_ver)
+          max_ver = ver;
+      }
+    }
+    iunlockput(ddp);
+
+    // If at capacity, delete the oldest snapshot (min version)
+    if(snap_count >= 3){
+      i = 0;
+      j = 0;
+      while(path[j] && j < MAXPATH - 16){
+        oldname[j] = path[j];
+        j++;
+      }
+      memmove(oldname + j, ".v", 2);
+      j += 2;
+      if(min_ver == 0){
+        oldname[j++] = '0';
+      } else {
+        int tmp = min_ver;
+        while(tmp > 0){
+          digits[i++] = '0' + tmp % 10;
+          tmp /= 10;
+        }
+        while(i > 0)
+          oldname[j++] = digits[--i];
+      }
+      oldname[j] = 0;
+      unlink_path(oldname);
+    }
+
+    // New version = max + 1 (or 0 if no snapshots exist yet)
+    {
+      int newver = (max_ver >= 0) ? max_ver + 1 : 0;
+      i = 0;
+      j = 0;
+      while(path[j] && j < MAXPATH - 16){
+        snapname[j] = path[j];
+        j++;
+      }
+      memmove(snapname + j, ".v", 2);
+      j += 2;
+      if(newver == 0){
+        snapname[j++] = '0';
+      } else {
+        int tmp = newver;
+        while(tmp > 0){
+          digits[i++] = '0' + tmp % 10;
+          tmp /= 10;
+        }
+        while(i > 0)
+          snapname[j++] = digits[--i];
+      }
+      snapname[j] = 0;
+    }
+
+    struct inode *snap = create(snapname, T_FILE, 0, 0);
+    if(snap){
+      char buf[BSIZE];
+      uint off = 0;
+      int nread;
+      while(off < ip->size){
+        int ncopy = ip->size - off;
+        if(ncopy > BSIZE)
+          ncopy = BSIZE;
+        nread = readi(ip, buf, off, ncopy);
+        if(nread <= 0 || writei(snap, buf, off, nread) != nread)
+          break;
+        off += nread;
+      }
+      iunlockput(snap);
+    }
+skipsnap:
+    itrunc(ip);
+  }
+
+  iunlock(ip);
+  end_op();
+
   f->type = FD_INODE;
   f->ip = ip;
   f->off = 0;
   f->readable = !(omode & O_WRONLY);
   f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
+  return fd;
+}
 
-  if((omode & O_TRUNC) && ip->type == T_FILE)
+int
+sys_restoreversion(void)
+{
+  char *path;
+  char snapname[MAXPATH], digits[16], buf[BSIZE];
+  struct inode *ip, *snap;
+  int version, i = 0, j = 0, nread, ret = 0;
+  uint off = 0;
+
+  if(argstr(0, &path) < 0)
+    return -1;
+  if(argint(1, &version) < 0)
+    return -1;
+  if(version < 0)
+    return -1;
+
+  while(path[j] && j < MAXPATH - 16){
+    snapname[j] = path[j];
+    j++;
+  }
+  snapname[j++] = '.';
+  snapname[j++] = 'v';
+  if(version == 0){
+    snapname[j++] = '0';
+  } else {
+    while(version > 0){
+      digits[i++] = '0' + (version % 10);
+      version /= 10;
+    }
+    while(i > 0)
+      snapname[j++] = digits[--i];
+  }
+  snapname[j] = '\0';
+
+  begin_op();
+  if((snap = namei(snapname)) == 0){
+    end_op();
+    return -1;
+  }
+  if((ip = namei(path)) == 0){
+    iput(snap);
+    end_op();
+    return -1;
+  }
+
+  ilock(snap);
+  ilock(ip);
+  if(snap->type != T_FILE || ip->type != T_FILE){
+    ret = -1;
+  } else {
     itrunc(ip);
-
-  iunlock(ip);
+    while(off < snap->size){
+      int ncopy = snap->size - off;
+      if(ncopy > BSIZE)
+        ncopy = BSIZE;
+      nread = readi(snap, buf, off, ncopy);
+      if(nread <= 0 || writei(ip, buf, off, nread) != nread){
+        ret = -1;
+        break;
+      }
+      off += nread;
+    }
+  }
+  iunlockput(ip);
+  iunlockput(snap);
   end_op();
 
-  return fd;
+  return ret;
 }
 
 int
@@ -506,5 +675,45 @@ sys_pipe(void)
   }
   fd[0] = fd0;
   fd[1] = fd1;
+  return 0;
+}
+
+int
+sys_listversions(void)
+{
+  char *path;
+  char name[DIRSIZ];
+  struct inode *dp;
+  struct dirent de;
+  uint off;
+  int namelen;
+
+  if(argstr(0, &path) < 0)
+    return -1;
+
+  begin_op();
+  if((dp = nameiparent(path, name)) == 0){
+    end_op();
+    return -1;
+  }
+
+  namelen = strlen(name);
+
+  ilock(dp);
+  for(off = 0; off < dp->size; off += sizeof(de)){
+    if(readi(dp, (char*)&de, off, sizeof(de)) != sizeof(de))
+      panic("listversions: readi");
+    if(de.inum == 0)
+      continue;
+    if(strncmp(de.name, name, namelen) == 0 &&
+       de.name[namelen] == '.' &&
+       de.name[namelen+1] == 'v' &&
+       de.name[namelen+2] >= '0' &&
+       de.name[namelen+2] <= '9') {
+      cprintf("%s\n", de.name);
+    }
+  }
+  iunlockput(dp);
+  end_op();
   return 0;
 }
