@@ -9,6 +9,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct uproc;
 
 // bio.c
 void            binit(void);
@@ -53,6 +54,7 @@ int             readi(struct inode*, char*, uint, uint);
 void            stati(struct inode*, struct stat*);
 int             writei(struct inode*, char*, uint, uint);
 void            itrunc(struct inode*);
+int             symlink(char*, char*);
 
 // ide.c
 void            ideinit(void);
@@ -121,6 +123,7 @@ void            userinit(void);
 int             wait(void);
 void            wakeup(void*);
 void            yield(void);
+int             getprocinfo(int, struct uproc*);
 
 // swtch.S
 void            swtch(struct context**, struct context*);

@@ -16,6 +16,8 @@
 #include "file.h"
 #include "fcntl.h"
 
+static struct inode* create(char *path, short type, short major, short minor);
+
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -163,6 +165,33 @@ bad:
   end_op();
   return -1;
 }
+
+
+int
+sys_symlink(void)
+{
+  char *target, *path;
+  struct inode *ip;
+
+  if(argstr(0, &target) < 0 || argstr(1, &path) < 0)
+    return -1;
+
+  begin_op();
+  ip = create(path, T_SYMLINK, 0, 0);
+  if(ip == 0){
+    end_op();
+    return -1;
+  }
+  if(writei(ip, target, 0, strlen(target)) != strlen(target)){
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+  iunlockput(ip);
+  end_op();
+  return 0;
+}
+
 
 // Is the directory dp empty except for "." and ".." ?
 static int
@@ -358,6 +387,32 @@ sys_open(void)
       iunlockput(ip);
       end_op();
       return -1;
+    }
+    // Follow symlinks unless O_NOFOLLOW is set
+    if(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)){
+      int depth = 0;
+      char target[MAXPATH];
+      int n;
+      while(ip->type == T_SYMLINK){
+        if(depth++ >= 10){
+          iunlockput(ip);
+          end_op();
+          return -1;
+        }
+        n = readi(ip, target, 0, MAXPATH - 1);
+        if(n <= 0){
+          iunlockput(ip);
+          end_op();
+          return -1;
+        }
+        target[n] = '\0';
+        iunlockput(ip);
+        if((ip = namei(target)) == 0){
+          end_op();
+          return -1;
+        }
+        ilock(ip);
+      }
     }
   }
 

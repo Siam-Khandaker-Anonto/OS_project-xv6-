@@ -185,6 +185,8 @@ UPROGS=\
 	_listversions\
 	_restoreversion\
 	_versiontest\
+	_symlinktest\
+	_mytest\
 
 fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)

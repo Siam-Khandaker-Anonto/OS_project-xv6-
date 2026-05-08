@@ -105,6 +105,9 @@ extern int sys_write(void);
 extern int sys_uptime(void);
 extern int sys_restoreversion(void);
 extern int sys_listversions(void);
+extern int sys_getprocinfo(void);
+extern int sys_symlink(void);
+
 
 static int (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -130,6 +133,8 @@ static int (*syscalls[])(void) = {
 [SYS_close]   sys_close,
 [SYS_restoreversion] sys_restoreversion,
 [SYS_listversions] sys_listversions,
+[SYS_getprocinfo] sys_getprocinfo,
+[SYS_symlink] sys_symlink,
 };
 
 void
